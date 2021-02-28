@@ -33,9 +33,10 @@ logging.basicConfig(level=logging.NOTSET)
 class DataParser(object):
 
   def __init__(self, source_dir, use_tokens=False, verbose=True, saved_vocab = None, saved_train_conj=None,
-          saved_val_conj=None):
-    random.seed(1337)
+          saved_val_conj=None, saved_test_conj=None, saved_max_len = 0):
+    #random.seed(1337)
     self.use_tokens = use_tokens
+    self.max_len = saved_max_len
     if self.use_tokens:
       self.step_markers = {'T'}
  
@@ -49,12 +50,13 @@ class DataParser(object):
       self.tokenize_fn = lambda x: x.rstrip()[2:]
     self.verbose = verbose
     train_dir = os.path.join(source_dir, 'train')
-    val_dir = os.path.join(source_dir, 'test')
+    test_dir = os.path.join(source_dir, 'test')
     self.train_fnames = [
-        os.path.join(train_dir, '%05d' % i) for i in range(1, 10000)]
+        os.path.join(train_dir, '%05d' % i) for i in range(1, 9500)]
     self.val_fnames = [
-        os.path.join(val_dir, fname)
-        for fname in os.listdir(val_dir) if fname.isdigit()]
+        os.path.join(train_dir, '%05d' % i) for i in range(9500, 10000)]
+    self.test_fnames = [
+        os.path.join(test_dir, '%04d' % i) for i in range(1, 1412)] 
     if verbose:
       logging.info('Building vocabulary...')
     if saved_vocab is not None and os.path.isfile(saved_vocab):
@@ -67,27 +69,42 @@ class DataParser(object):
       f.close()
     if verbose:
       logging.info('Found %s unique tokens.', len(self.vocabulary))
+    self.vocab_size = len(self.vocabulary)
     self.vocabulary_index = dict(enumerate(self.vocabulary))
     self.reverse_vocabulary_index = dict(
         [(value, key) for (key, value) in self.vocabulary_index.items()])
     if saved_train_conj is not None and os.path.isfile(saved_train_conj):
       with (open(saved_train_conj, "rb")) as f:
-        self.train_conjectures = pickle.load(f)
+        self.train_conjectures, self.train_step_nums, self.train_conj_names  = pickle.load(f)
     else:
-      self.train_conjectures = self.parse_file_list(self.train_fnames)
+      self.train_conjectures, self.train_step_nums, self.train_conj_names, ml= self.parse_file_list(self.train_fnames)
+      if ml > self.max_len:
+        self.max_len = ml
       f = open("train_conj.pkl","wb")
-      pickle.dump(self.train_conjectures,f)
+      pickle.dump((self.train_conjectures,self.train_step_nums, self.train_conj_names),f)
       f.close()
     if saved_val_conj is not None and os.path.isfile(saved_val_conj):
       with (open(saved_val_conj, "rb")) as f:
-        self.val_conjectures = pickle.load(f)
+        self.val_conjectures, self.val_step_nums, self.val_conj_names = pickle.load(f)
     else:
-      self.val_conjectures = self.parse_file_list(self.val_fnames)
+      self.val_conjectures, self.val_step_nums, self.val_conj_names, ml = self.parse_file_list(self.val_fnames)
+      if ml > self.max_len:
+        self.max_len = ml
       f = open("val_conj.pkl","wb")
-      pickle.dump(self.val_conjectures,f)
+      pickle.dump((self.val_conjectures, self.val_step_nums, self.val_conj_names),f)
       f.close()
-    self.train_conjectures_names = sorted(self.train_conjectures.keys())
-    self.val_conjectures_names = sorted(self.val_conjectures.keys())
+    if saved_test_conj is not None and os.path.isfile(saved_test_conj):
+      with (open(saved_test_conj, "rb")) as f:
+        self.test_conjectures, self.test_step_nums, self.test_conj_names = pickle.load(f)
+    else:
+      self.test_conjectures, self.test_step_nums, self.test_conj_names, ml = self.parse_file_list(self.test_fnames)
+      if ml > self.max_len:
+          self.max_len = ml
+      f = open("test_conj.pkl","wb")
+      pickle.dump((self.test_conjectures, self.test_step_nums, self.test_conj_names),f)
+      f.close()
+    if verbose:
+      logging.info('Max length is '+str(self.max_len))
 
   def build_vocabulary(self):
     vocabulary = set()
@@ -102,11 +119,20 @@ class DataParser(object):
 
   def parse_file_list(self, fnames):
     conjectures = {}
+    conj_names = []
+    step_nums = []
+    max_len = 0
     for fname in fnames:
-      conjecture = self.parse_file(fname)
+      conjecture, l = self.parse_file(fname)
+      if l>max_len:
+          max_len = l
       name = conjecture.pop('name')
       conjectures[name] = conjecture
-    return conjectures
+      step_nums.append(len(conjecture['+'])*2)
+      conj_names.append(name)
+    step_nums = np.asarray(step_nums)
+    step_nums = np.cumsum(step_nums)
+    return conjectures, step_nums, conj_names, max_len
 
   def display_stats(self, conjectures):
     dep_counts = []
@@ -168,6 +194,7 @@ class DataParser(object):
         '-': [],
         'conj': conj,
     }
+    max_len = len(conj)
     while 1:
       line = f.readline()
       if not line:
@@ -178,18 +205,28 @@ class DataParser(object):
       content = self.tokenize_fn(line)
       if marker == 'A':
         conjecture['deps'].append(content)
+        if len(content)>max_len:
+            max_len = len(content)
       elif marker == '+':
         conjecture['+'].append(content)
+        if len(content)>max_len:
+            max_len = len(content)
       elif marker == '-':
         conjecture['-'].append(content)
-    return conjecture
+        if len(content)>max_len:
+            max_len = len(content)
+    return conjecture, max_len
 
-  def integer_encode_statements(self, statements, max_len):
+  def integer_encode_statements(self, statements):
+    max_len = 0
+    for s, statement in enumerate(statements):
+      if len(statement)>max_len:
+        max_len = len(statement)
     encoded = np.zeros((len(statements), max_len), dtype='int32')
     for s, statement in enumerate(statements):
-      for i, char in enumerate(statement[:max_len]):
+      for i, char in enumerate(statement):
         encoded[s, i] = self.reverse_vocabulary_index.get(
-            char, -1) + 1
+            char, -1) + 1 # unknown char maps to 0
     return encoded
  
   def integer_decode_statements(self, statements):
@@ -202,7 +239,11 @@ class DataParser(object):
           strs.append(s.rstrip())
       return strs
 
-  def one_hot_encode_statments(self, statements, max_len):
+  def one_hot_encode_statments(self, statements):
+    max_len = 0
+    for s, statement in enumerate(statements):
+      if len(statement)>max_len:
+        max_len = len(statement)
     encoded = np.zeros((len(statements), max_len, len(self.vocabulary) + 1),
                        dtype='float32')
     for s, statement in enumerate(statements):
@@ -211,193 +252,162 @@ class DataParser(object):
         encoded[s, max_len - i - 1, j] = 1
     return encoded
 
-  def draw_random_batch_of_steps(self, split='train', encoding='integer',
-                                 max_len=256, batch_size=128):
+  def draw_step_by_index(self, index=0, split='train'):
+    '''
+    draw one step with its conjecture and deps and label
+    '''
     if split == 'train':
       all_conjectures = self.train_conjectures
-      conjecture_names = self.train_conjectures_names
+      conjecture_names = self.train_conj_names
+      step_nums = self.train_step_nums
     elif split == 'val':
       all_conjectures = self.val_conjectures
-      conjecture_names = self.val_conjectures_names
+      conjecture_names = self.val_conj_names
+      step_nums = self.val_step_nums
+    elif split == 'test':
+      all_conjectures = self.test_conjectures
+      conjecture_names = self.test_conj_names
+      step_nums = self.test_step_nums
     else:
-      raise ValueError('`split` must be in {"train", "val"}.')
+      raise ValueError('`split` must be in {"train", "val", "test"}.')
+    conj_idx = (step_nums<=index).astype(int).sum() # step_nums are cumsum
+    conj_name = conjecture_names[conj_idx]
+    conjecture = all_conjectures[conj_name]
+    if index < step_nums[0]:
+      step_idx = index
+    else:
+      step_idx = index-step_nums[conj_idx-1]
+    pos_step_num = len(conjecture['+'])
+    if step_idx >= pos_step_num:
+      step = conjecture['-'][step_idx-pos_step_num]
+      label = 0
+    else:
+      step = conjecture['+'][step_idx]
+      label = 1
+    deps = conjecture['deps']
+    conj = conjecture['conj']
+    return step, conj, deps, label
+
+  def draw_conjecture_by_index(self, index=0, split='train', load_neg_steps = False):
+    '''
+    load the entire proof including conj, deps and steps
+    '''
+    if split == 'train':
+      all_conjectures = self.train_conjectures
+      conjecture_names = self.train_conj_names
+    elif split == 'val':
+      all_conjectures = self.val_conjectures
+      conjecture_names = self.val_conj_names
+    elif split == 'test':
+      all_conjectures = self.test_conjectures
+      conjecture_names = self.test_conj_names
+    else:
+      raise ValueError('`split` must be in {"train", "val", "test"}.')
+    
+    conj_name = conjecture_names[index]
+    conjecture = all_conjectures[conj_name]
+    steps = conjecture['+']
+    if not steps:
+      return None
+    deps=conjecture['deps']
+    conj=conjecture['conj']
+    if load_neg_steps:
+      return steps, conjecture['-'], conj, deps
+    else:
+      return steps, conj, deps
+
+  def steps_generator(
+    self, split='train', encoding='integer', batch_size=8, shuffle=True):
+    if split == 'train':
+      total = self.train_step_nums[-1]
+    elif split == 'val':
+      total = self.val_step_nums[-1]
+    elif split == 'test':
+      total = self.test_step_nums[-1]
+    else:
+      raise ValueError('`split` must be in {"train", "val", "test"}.')
+
     if encoding == 'integer':
-      encode = lambda x: self.integer_encode_statements(x, max_len=max_len)
+      encode = lambda x: self.integer_encode_statements(x)
     elif encoding == 'one-hot':
-      encode = lambda x: self.one_hot_encode_statments(x, max_len=max_len)
+      encode = lambda x: self.one_hot_encode_statments(x)
     else:
       raise ValueError('Unknown encoding:', encoding)
 
-    labels = np.random.randint(0, 2, size=(batch_size,))
-    steps = []
-    i = 0
-    while len(steps) < batch_size:
-      name = random.choice(conjecture_names)
-      conjecture = all_conjectures[name]
-      if labels[i]:
-        conjecture_steps = conjecture['+']
-      else:
-        conjecture_steps = conjecture['-']
-      if not conjecture_steps:
-        continue
-      step = random.choice(conjecture_steps)
-      steps.append(step)
-      i += 1
-    return encode(steps), labels
-
-  def draw_batch_of_steps_in_order(self, conjecture_index=0, step_index=0,
-                                   split='train',
-                                   encoding='integer',
-                                   max_len=256, batch_size=128):
-    if split == 'train':
-      all_conjectures = self.train_conjectures
-      conjecture_names = self.train_conjectures_names
-    elif split == 'val':
-      all_conjectures = self.val_conjectures
-      conjecture_names = self.val_conjectures_names
-    else:
-      raise ValueError('`split` must be in {"train", "val"}.')
-    if encoding == 'integer':
-      encode = lambda x: self.integer_encode_statements(x, max_len=max_len)
-    elif encoding == 'one-hot':
-      encode = lambda x: self.one_hot_encode_statments(x, max_len=max_len)
-    else:
-      raise ValueError('Unknown encoding:', encoding)
-    labels = []
-    steps = []
-    while len(steps) < batch_size:
-      conj_name = conjecture_names[conjecture_index % len(conjecture_names)]
-      conjecture = all_conjectures[conj_name]
-      conjecture_steps = conjecture['+'] + conjecture['-']
-      if len(conjecture_steps) > step_index:
-        step_labels = ([1] * len(conjecture['+']) +
-                       [0] * len(conjecture['-']))
-        remaining = batch_size - len(steps)
-        steps += conjecture_steps[step_index: step_index + remaining]
-        labels += step_labels[step_index: step_index + remaining]
-        step_index += remaining
-      else:
-        step_index = 0
-        conjecture_index += 1
-    labels = np.asarray(labels).astype('float32')
-    return (encode(steps), labels), (conjecture_index, step_index)
-
-  def draw_batch_of_steps_and_conjectures_in_order(
-      self, conjecture_index=0, step_index=0,
-      split='train', encoding='integer', max_len=256, batch_size=128):
-    if split == 'train':
-      all_conjectures = self.train_conjectures
-      conjecture_names = self.train_conjectures_names
-    elif split == 'val':
-      all_conjectures = self.val_conjectures
-      conjecture_names = self.val_conjectures_names
-    else:
-      raise ValueError('`split` must be in {"train", "val"}.')
-    if encoding == 'integer':
-      encode = lambda x: self.integer_encode_statements(x, max_len=max_len)
-    elif encoding == 'one-hot':
-      encode = lambda x: self.one_hot_encode_statments(x, max_len=max_len)
-    else:
-      raise ValueError('Unknown encoding:', encoding)
-    labels = []
-    conjectures = []
-    steps = []
-    while len(steps) < batch_size:
-      conj_name = conjecture_names[conjecture_index % len(conjecture_names)]
-      conjecture = all_conjectures[conj_name]
-      conjecture_steps = conjecture['+'] + conjecture['-']
-      if len(conjecture_steps) > step_index:
-        step_labels = ([1] * len(conjecture['+']) +
-                       [0] * len(conjecture['-']))
-        remaining = batch_size - len(steps)
-        steps += conjecture_steps[step_index: step_index + remaining]
-        added_labels = step_labels[step_index: step_index + remaining]
-        labels += added_labels
-        conjectures += [conjecture['conj']] * len(added_labels)
-        step_index += remaining
-      else:
-        step_index = 0
-        conjecture_index += 1
-    labels = np.asarray(labels).astype('float32')
-    return (([encode(steps), encode(conjectures)], labels),
-            (conjecture_index, step_index))
-
-  def draw_random_batch_of_steps_and_conjectures(self, split='train',
-                                                 encoding='integer',
-                                                 max_len=256,
-                                                 batch_size=128,
-                                                 load_deps=True):
-    if split == 'train':
-      all_conjectures = self.train_conjectures
-      conjecture_names = self.train_conjectures_names
-    elif split == 'val':
-      all_conjectures = self.val_conjectures
-      conjecture_names = self.val_conjectures_names
-    else:
-      raise ValueError('`split` must be in {"train", "val"}.')
-    if encoding == 'integer':
-      encode = lambda x: self.integer_encode_statements(x, max_len=max_len)
-    elif encoding == 'one-hot':
-      encode = lambda x: self.one_hot_encode_statments(x, max_len=max_len)
-    else:
-      raise ValueError('Unknown encoding:', encoding)
-
-    labels = np.random.randint(0, 2, size=(batch_size,))
-    conjectures = []
-    steps = []
-    if load_deps:
+    indices = list(range(total))
+    if shuffle:
+      random.shuffle(indices)
+    cur_idx = 0
+    while cur_idx < len(indices):
+      conj = []
       deps = []
-    i = 0
-    while len(steps) < batch_size:
-      name = random.choice(conjecture_names)
-      conjecture = all_conjectures[name]
-      if labels[i]:
-        conjecture_steps = conjecture['+']
-      else:
-        conjecture_steps = conjecture['-']
-      if not conjecture_steps:
-        continue
-      step = random.choice(conjecture_steps)
-      conjectures.append(conjecture['conj'])
-      steps.append(step)
-      if load_deps:
-        deps.append(conjecture['deps'])
-      i += 1
-    if load_deps:
-      return [encode(steps), encode(conjectures),[encode(d) for d in deps]], labels
+      step = []
+      label = []
+      while cur_idx < len(indices) and len(conj)<batch_size:
+         s, c, d, l = self.draw_step_by_index(indices[cur_idx], split)
+         step.append(s)
+         conj.append(c)
+         label.append(l)
+         deps.append(encode(d))
+         cur_idx += 1
+      yield (encode(conj), deps, encode(step), np.asarray(label))
+
+  def steps_gen_gen(self, split='train', encoding='integer', batch_size=8, shuffle=True):
+      while 1:
+          yield self.steps_generator(split, encoding, batch_size, shuffle)
+
+  def conj_generator(
+      self, split='train', encoding='integer', batch_size=8, shuffle=True, load_neg_steps=False):
+    if split == 'train':
+      total = len(self.train_conj_names)
+    elif split == 'val':
+      total = len(self.val_conj_names)
+    elif split == 'test':
+      total = len(self.test_conj_names)
     else:
-      return [encode(steps), encode(conjectures)], labels
+      raise ValueError('`split` must be in {"train", "val", "test"}.')
 
-  def training_steps_generator(self, encoding='integer',
-                               max_len=256, batch_size=128):
-    while 1:
-      yield self.draw_random_batch_of_steps(
-          'train', encoding, max_len, batch_size)
+    if encoding == 'integer':
+      encode = lambda x: self.integer_encode_statements(x)
+    elif encoding == 'one-hot':
+      encode = lambda x: self.one_hot_encode_statments(x)
+    else:
+      raise ValueError('Unknown encoding:', encoding)
 
-  def validation_steps_generator(self, encoding='integer',
-                                 max_len=256, batch_size=128):
-    conj_index, step_index = 0, 0
-    while 1:
-      data, (conj_index, step_index) = self.draw_batch_of_steps_in_order(
-          conj_index, step_index, 'val', encoding, max_len, batch_size)
-      yield data
+    indices = list(range(total))
+    if shuffle:
+      random.shuffle(indices)
+    cur_idx = 0
+    while cur_idx < len(indices):
+      conj = []
+      deps = []
+      step = []
+      neg_step = []
+      while cur_idx < len(indices) and len(conj)<batch_size:
+         ret = self.draw_conjecture_by_index(indices[cur_idx], split, load_neg_steps)
+         if ret is None:
+           cur_idx += 1
+           continue
+         if load_neg_steps:
+           s, ns, c, d = ret 
+           neg_step.append(encode(ns))
+         else:
+           s, c, d = ret 
+         step.append(encode(s))
+         conj.append(c)
+         deps.append(encode(d))
+         cur_idx += 1
+      if load_neg_steps:
+        yield (encode(conj), deps, step, neg_step)
+      else:
+        yield (encode(conj), deps, step)
 
-  def training_steps_and_conjectures_generator(
-      self, encoding='integer', max_len=256, batch_size=128):
+  def conj_gen_gen(self, split='train', encoding='integer', batch_size=8, shuffle=True, load_neg_steps=False):
     while 1:
-      yield self.draw_random_batch_of_steps_and_conjectures(
-          'train', encoding, max_len, batch_size)
-
-  def validation_steps_and_conjectures_generator(
-      self, encoding='integer', max_len=256, batch_size=128):
-    conj_index, step_index = 0, 0
-    while 1:
-      fn = self.draw_batch_of_steps_and_conjectures_in_order
-      data, (conj_index, step_index) = fn(
-          conj_index, step_index, 'val', encoding, max_len, batch_size)
-      yield data
+      yield self.conj_generator(split, encoding, batch_size, shuffle, load_neg_steps)
 
 if __name__ == '__main__':
-    dataparser = DataParser('../holstep', use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl')
-    train_gen = dataparser.training_steps_and_conjectures_generator(batch_size=1,max_len=128)
-    val_gen = dataparser.validation_steps_and_conjectures_generator(batch_size=1,max_len=128)
+    dataparser = DataParser('../holstep', use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
+    mask_train_gen= dataparser.conj_generator(split='train', batch_size=1, shuffle=True, load_neg_steps = True)
+    cls_train_gen= dataparser.steps_generator(split='train', batch_size=1, shuffle=True)
+    gen_train_gen= dataparser.conj_generator(split='train', batch_size=1, shuffle=True, load_neg_steps = False)
