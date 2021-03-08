@@ -32,11 +32,12 @@ logging.basicConfig(level=logging.NOTSET)
 
 class DataParser(object):
 
-  def __init__(self, source_dir, use_tokens=False, verbose=True, saved_vocab = None, saved_train_conj=None,
-          saved_val_conj=None, saved_test_conj=None, saved_max_len = 0):
+  def __init__(self, source_dir, max_len=256, use_tokens=False, verbose=True, saved_vocab = None, saved_train_conj=None,
+          saved_val_conj=None, saved_test_conj=None, saved_max_len = 57846):
     #random.seed(1337)
     self.use_tokens = use_tokens
-    self.max_len = saved_max_len
+    self.max_len = max_len 
+    self.real_max_len = saved_max_len
     if self.use_tokens:
       self.step_markers = {'T'}
  
@@ -73,38 +74,47 @@ class DataParser(object):
     self.vocabulary_index = dict(enumerate(self.vocabulary))
     self.reverse_vocabulary_index = dict(
         [(value, key) for (key, value) in self.vocabulary_index.items()])
+
+    # special chars not included in reverse vocab
+    self.vocabulary_index[-1]=' ' # <PAD>
+    self.vocabulary_index[self.vocab_size]='<UNK>'
+    self.vocabulary_index[self.vocab_size+1]='<CLS>'
+
     if saved_train_conj is not None and os.path.isfile(saved_train_conj):
       with (open(saved_train_conj, "rb")) as f:
         self.train_conjectures, self.train_step_nums, self.train_conj_names  = pickle.load(f)
     else:
       self.train_conjectures, self.train_step_nums, self.train_conj_names, ml= self.parse_file_list(self.train_fnames)
-      if ml > self.max_len:
-        self.max_len = ml
+      if ml > self.real_max_len:
+        self.real_max_len = ml
       f = open("train_conj.pkl","wb")
       pickle.dump((self.train_conjectures,self.train_step_nums, self.train_conj_names),f)
       f.close()
+
     if saved_val_conj is not None and os.path.isfile(saved_val_conj):
       with (open(saved_val_conj, "rb")) as f:
         self.val_conjectures, self.val_step_nums, self.val_conj_names = pickle.load(f)
     else:
       self.val_conjectures, self.val_step_nums, self.val_conj_names, ml = self.parse_file_list(self.val_fnames)
-      if ml > self.max_len:
-        self.max_len = ml
+      if ml > self.real_max_len:
+        self.real_max_len = ml
       f = open("val_conj.pkl","wb")
       pickle.dump((self.val_conjectures, self.val_step_nums, self.val_conj_names),f)
       f.close()
+
     if saved_test_conj is not None and os.path.isfile(saved_test_conj):
       with (open(saved_test_conj, "rb")) as f:
         self.test_conjectures, self.test_step_nums, self.test_conj_names = pickle.load(f)
     else:
       self.test_conjectures, self.test_step_nums, self.test_conj_names, ml = self.parse_file_list(self.test_fnames)
-      if ml > self.max_len:
-          self.max_len = ml
+      if ml > self.real_max_len:
+          self.real_max_len = ml
       f = open("test_conj.pkl","wb")
       pickle.dump((self.test_conjectures, self.test_step_nums, self.test_conj_names),f)
       f.close()
+
     if verbose:
-      logging.info('Max length is '+str(self.max_len))
+      logging.info('Real max length is '+str(self.real_max_len))
 
   def build_vocabulary(self):
     vocabulary = set()
@@ -218,15 +228,12 @@ class DataParser(object):
     return conjecture, max_len
 
   def integer_encode_statements(self, statements):
-    max_len = 0
-    for s, statement in enumerate(statements):
-      if len(statement)>max_len:
-        max_len = len(statement)
+    max_len = self.max_len
     encoded = np.zeros((len(statements), max_len), dtype='int32')
     for s, statement in enumerate(statements):
-      for i, char in enumerate(statement):
+      for i, char in enumerate(statement[:max_len]):
         encoded[s, i] = self.reverse_vocabulary_index.get(
-            char, -1) + 1 # unknown char maps to 0
+            char, self.vocab_size) + 1 # <UNK> maps to vocab_size+1, <PAD> to 0
     return encoded
  
   def integer_decode_statements(self, statements):
@@ -234,7 +241,6 @@ class DataParser(object):
       for s, statement in enumerate(statements):
           s = ''
           for i, char in enumerate(statement):
-              self.vocabulary_index[-1]=' '
               s += self.vocabulary_index.get(char-1,'<UNK>')
           strs.append(s.rstrip())
       return strs
@@ -311,7 +317,6 @@ class DataParser(object):
       return None
     deps=conjecture['deps']
     if len(deps)==0:
-      print("no deps")
       return None
     conj=conjecture['conj']
     if load_neg_steps:
@@ -351,9 +356,12 @@ class DataParser(object):
          step.append(s)
          conj.append(c)
          label.append(l)
-         deps.append(encode(d)[:,:256])
+         deps.append(encode(d))
          cur_idx += 1
-      yield (encode(conj)[:,:256], deps, encode(step)[:,:256], np.asarray(label))
+      encoded_step = encode(step) # b x 256
+      cls_col = np.zeros((encoded_step.shape[0],1))+(self.vocab_size+2) # <CLS>, b x 1
+      encoded_step = np.concatenate([cls_col,encoded_step],axis=1) # b x (1+256)
+      yield (encode(conj), deps, encoded_step, np.asarray(label))
 
   def steps_gen_gen(self, split='train', encoding='integer', batch_size=8, shuffle=True):
       while 1:
@@ -393,24 +401,28 @@ class DataParser(object):
            continue
          if load_neg_steps:
            s, ns, c, d = ret 
-           neg_step.append(encode(ns)[:,:256])
+           neg_step.append(encode(ns))
          else:
            s, c, d = ret 
-         step.append(encode(s)[:,:256])
+         step.append(encode(s))
          conj.append(c)
-         deps.append(encode(d)[:,:256])
+         deps.append(encode(d))
          cur_idx += 1
       if load_neg_steps:
-          yield (encode(conj)[:,:256], deps, step, neg_step)
+          yield (encode(conj), deps, step, neg_step)
       else:
-          yield (encode(conj)[:,:256], deps, step)
+          yield (encode(conj), deps, step)
 
   def conj_gen_gen(self, split='train', encoding='integer', batch_size=8, shuffle=True, load_neg_steps=False):
     while 1:
       yield self.conj_generator(split, encoding, batch_size, shuffle, load_neg_steps)
 
 if __name__ == '__main__':
-    dataparser = DataParser('../holstep', use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
+    dataparser = DataParser('../holstep', max_len=256, use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
     mask_train_gen= dataparser.conj_generator(split='train', batch_size=1, shuffle=True, load_neg_steps = True)
     cls_train_gen= dataparser.steps_generator(split='train', batch_size=1, shuffle=True)
     gen_train_gen= dataparser.conj_generator(split='train', batch_size=1, shuffle=True, load_neg_steps = False)
+    print(dataparser.vocab_size)
+    c,d,s,l = next(cls_train_gen)
+    print("conj",dataparser.integer_decode_statements(c)[0])
+    print("step",dataparser.integer_decode_statements(s)[0])

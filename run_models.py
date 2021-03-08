@@ -1,4 +1,5 @@
 import math
+import random
 
 import torch
 import torch.nn as nn
@@ -33,51 +34,27 @@ def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, lo
     # turn into tensors
     conj = torch.LongTensor(conj).to(device).transpose(0,1) # clen x batch
     b=conj.shape[1]
-    deps = [torch.LongTensor(dep)[torch.randperm(len(dep))[:min(len(dep),b)]].to(device).transpose(0,1) for dep in deps] # [dlen x batch]
-    '''
-    step = [torch.LongTensor(s).to(device).transpose(0,1) for s in step] # [slen x num_step]
-    neg_step = [torch.LongTensor(s).to(device).transpose(0,1) for s in neg_step] # [slen x num_step]
-    '''
+    deps = torch.cat([torch.LongTensor(d[random.randint(0, d.shape[0]-1)]).unsqueeze(1) for d in deps], dim=1).to(device) # 256 x b, randomly choose 1 for each sample
+    step = torch.cat([torch.LongTensor(s[random.randint(0, s.shape[0]-1)]).unsqueeze(1) for s in step], dim=1).to(device) # 256 x b, randomly choose 1 for each sample
+    neg_step = torch.cat([torch.LongTensor(s[random.randint(0, s.shape[0]-1)]).unsqueeze(1) for s in neg_step], dim=1).to(device) # 256 x b, randomly choose 1 for each sample
+
+    sample = torch.cat([conj,deps,step,neg_step],dim=1) # 256 x 4b
 
 
-    #sample_list = [conj]+deps+step+neg_step
-    sample_list = [conj]+deps 
-    loss = 0.0
-    corrects = 0
-    total = 0
-    for sample in sample_list:
-        #print(sample.shape)
-        while 1:
-            mask = torch.ones(sample.shape[0]*sample.shape[1]).long().to(device)
-            mask[:int(math.ceil(len(mask)*percent))]=0
-            mask = mask[torch.randperm(len(mask))]
-            mask = mask.reshape(sample.shape)
-            masked_sample = sample*mask
-            if torch.sum(masked_sample != sample)>0 and masked_sample.sum(0).min() > 0:
-                break
-            '''
-            if torch.sum(masked_sample != sample)==0:
-                print("no diff")
-                '''
-            if torch.sum(masked_sample != sample)>0 and masked_sample.sum(0).min() == 0:
-                print("made all 0 row")
-            if masked_sample.shape[1]==0:
-                print("sample batch 0!")
-            if torch.sum(masked_sample != sample)==0 and masked_sample.sum(0).min() == 0:
-                print("orig all 0 row")
-        hidden = cut_batch(masked_sample, b, pt['encoder']) # len x batch x channel
-        output = pt['decoder'](hidden) # len x batch x vocab_size
-        res = loss_fn(sample, output, mask)
-        '''
-        if res == 0.0:
-            continue
-            '''
-        lo, co, to = res
-        loss += lo
-        corrects += co
-        total += to
-    if loss == 0.0:
-        print(loss)
+    while 1:
+        mask = torch.ones(sample.shape[0]*sample.shape[1]).long().to(device)
+        mask[:int(math.ceil(len(mask)*percent))]=0
+        mask = mask[torch.randperm(len(mask))]
+        mask = mask.reshape(sample.shape)
+        masked_sample = sample*mask
+        if torch.sum(masked_sample != sample)>0 and masked_sample.sum(0).min() > 0:
+            break
+    hidden = pt['encoder'](masked_sample) # len x batch x channel
+    output = pt['decoder'](hidden) # len x batch x vocab_size
+    res = loss_fn(sample, output, mask)
+    if res == 0.0:
+        return None
+    loss, corrects, total = res
     return loss, corrects, total
 
 def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, loss_fn):
@@ -91,31 +68,20 @@ def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, lo
     '''
     # turn into tensors
     conj = torch.LongTensor(conj).to(device).transpose(0,1) # clen x batch
-    step = torch.LongTensor(step).to(device).transpose(0,1) # slen x batch
+    step = torch.LongTensor(step).to(device).transpose(0,1) # (1+slen) x batch
     b=conj.shape[1]
     if use_deps:
-        #deps = [torch.LongTensor(dep).to(device).transpose(0,1) for dep in deps] # [dlen x num_dep]
-        deps = [torch.LongTensor(dep)[torch.randperm(len(dep))[:min(len(dep),b)]].to(device).transpose(0,1) for dep in deps] # [dlen x batch]
+        deps = torch.cat([torch.LongTensor(d[random.randint(0, d.shape[0]-1)]).unsqueeze(1) for d in deps], dim=1).to(device) # 256 x b, randomly choose 1 for each sample
 
     encoded_conj = sct['conj_encoder'](conj) # clen x batch x channel
 
     if use_deps:
-        encoded_deps = [cut_batch(dep, b, sct['deps_encoder']) for dep in deps] # [dlen x num_dep x channel]
-
-    memory_len = 256 
-
-    encoded_conj = encoded_conj[:memory_len]
-    if use_deps:
-        encoded_deps = [dep[:memory_len] for dep in encoded_deps]
-        memory = [torch.cat([encoded_conj[:,i:i+1],encoded_deps[i].reshape(-1,1,encoded_deps[i].shape[-1])],dim=0) for i in range(b)] # [8 x (num_dep+1) x c], len=batch
-        #memory = [m.reshape(m.shape[0]*m.shape[1],-1).unsqueeze(1) for m in memory]
+        encoded_deps = sct['deps_encoder'](deps) # dlen x batch x channel
+        memory = torch.cat([encoded_conj,encoded_deps], dim=0) # (256*2) x batch x channel
     else:
-        memory = [encoded_conj[:,i:i+1] for i in range(b)] # [8 x 1 x c]
+        memory = encoded_conj
 
-    outputs = []
-    for i in range(b):
-        outputs.append(sct['step_decoder'](step[:,i:i+1] ,memory[i], mask_tgt=True)[0]) # 1 x cls_num
-    outputs = torch.cat(outputs,dim=0) # batch x cls_num
+    outputs = sct['step_decoder'](step ,memory, mask_tgt=True)[0] # batch x cls_num
     labels = torch.LongTensor(labels).to(device)
     loss, corrects, total = loss_fn(outputs, labels)
     return loss, corrects, total
@@ -128,26 +94,17 @@ def run_step_gen_transformer(conj, deps, step, sgt, d_model, device, loss_fn):
     '''
     # turn into tensors
     conj = torch.LongTensor(conj).to(device).transpose(0,1) # clen x batch
-    deps = [torch.LongTensor(dep).to(device).transpose(0,1) for dep in deps] # [dlen x num_dep]
+    deps = torch.cat([torch.LongTensor(d[random.randint(0, d.shape[0]-1)]).unsqueeze(1) for d in deps], dim=1).to(device) # 256 x b, randomly choose 1 for each sample
 
     b=conj.shape[1]
 
     encoded_conj = sgt['conj_encoder'](conj) # clen x batch x channel
-    encoded_deps = [cut_batch(dep, b, sgt['deps_encoder']) for dep in deps] # [dlen x num_dep x channel]
+    encoded_deps = sgt['deps_encoder'](deps) # dlen x batch x channel
 
-    memory_len = 8
+    memory = torch.cat([encoded_conj,encoded_deps],dim=0) # (256*2) x batch x channel
 
-    encoded_conj = encoded_conj[:memory_len]
-    encoded_deps = [dep[:memory_len] for dep in encoded_deps]
-    memory = [torch.cat([encoded_conj[:,i:i+1],encoded_deps[i]],dim=1) for i in range(b)] # [8 x (num_dep+1) x c], len=batch
-    memory = [m.reshape(m.shape[0]*m.shape[1],-1).unsqueeze(1) for m in memory]
-
-    tlen = max([dep.shape[0] for dep in deps]+[conj.shape[0]])
-    tgt = torch.randn(tlen, b, d_model).to(device)
-    outputs = []
-    for i in range(b):
-        outputs.append(sgt['step_decoder'](tgt[:,i:i+1] ,memory[i], mask_tgt=False)) # tlen x 1 x cls_num
-    outputs = torch.cat(outputs,dim=1) # tlen x batch x cls_num
+    tgt = torch.randn(conj.shape[0], b, d_model).to(device)
+    outputs = sgt['step_decoder'](tgt ,memory, mask_tgt=False) # tlen x batch x cls_num
     step = [torch.LongTensor(s).to(device).transpose(0,1) for s in step] # [tlen' x num_dep]
     loss, corrects, total = loss_fn(outputs, step)
     return loss, corrects, total 
@@ -157,7 +114,7 @@ if __name__ == '__main__':
     from model import build_pretrain_transformer, build_step_cls_transformer, build_step_gen_transformer
     from loss import *
 
-    dataparser = DataParser('../holstep', use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
+    dataparser = DataParser('../holstep', max_len=256, use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
 
     pre_train_gen = dataparser.conj_generator(split='train', batch_size=1, shuffle=True, load_neg_steps=True)
     pre_val_gen = dataparser.conj_generator(split='val', batch_size=1, shuffle=False, load_neg_steps=True)
@@ -169,9 +126,12 @@ if __name__ == '__main__':
     gen_val_gen= dataparser.conj_generator(split='val', batch_size=1, shuffle=False, load_neg_steps=False)
 
     d_model = 8
-    pt = build_pretrain_transformer(dataparser.vocab_size+1, dataparser.max_len)
-    sct = build_step_cls_transformer(dataparser.vocab_size+1, dataparser.max_len)
-    sgt = build_step_gen_transformer(dataparser.vocab_size+1, dataparser.max_len, d_model)
+    n_head=8
+    n_hid=16
+    n_layers=6
+    pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len,d_model, n_head, n_hid, n_layers) # <PAD>,<UNK>,<CLS>
+    sct = build_step_cls_transformer(dataparser.vocab_size+3, dataparser.max_len,d_model, n_head, n_hid, n_layers)
+    sgt = build_step_gen_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
 
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     '''

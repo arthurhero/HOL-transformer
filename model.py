@@ -198,31 +198,30 @@ class TransformerDecoder(nn.Module):
         output = self.decoder(output) # batch x num_cls
         return output 
 
-def build_pretrain_transformer(vocab_size, pos_max_len,d_model=8):
-    d_model = 256 
+def build_pretrain_transformer(vocab_size, pos_max_len,d_model,n_head, n_hid, n_layers):
     pos_encoder = PositionalEncoding(d_model, max_len=pos_max_len)
     model = nn.ModuleDict({
-        'encoder': TransformerEncoder(vocab_size, d_model, n_head=8, n_hid=512, n_layers=6, pos_encoder=pos_encoder),
+        'encoder': TransformerEncoder(vocab_size, d_model, n_head=n_head, n_hid=n_hid, n_layers=n_layers, pos_encoder=pos_encoder),
         'decoder': nn.Linear(d_model, vocab_size)
     })
     return model
 
-def build_step_cls_transformer(vocab_size, pos_max_len,d_model=8):
+def build_step_cls_transformer(vocab_size, pos_max_len,d_model,n_head, n_hid, n_layers):
     d_model = 256
     pos_encoder = PositionalEncoding(d_model, max_len=pos_max_len)
     model = nn.ModuleDict({
-        'conj_encoder': TransformerEncoder(vocab_size, d_model, n_head=8, n_hid=512, n_layers=6, pos_encoder=pos_encoder),
-        'deps_encoder': TransformerEncoder(vocab_size, d_model, n_head=8, n_hid=512, n_layers=6, pos_encoder=pos_encoder),
-        'step_decoder': TransformerDecoder(vocab_size, 2, d_model, n_head=8, n_hid=512, n_layers=6, pos_encoder=pos_encoder)
+        'conj_encoder': TransformerEncoder(vocab_size, d_model, n_head, n_hid, n_layers, pos_encoder=pos_encoder),
+        'deps_encoder': TransformerEncoder(vocab_size, d_model, n_head, n_hid, n_layers, pos_encoder=pos_encoder),
+        'step_decoder': TransformerDecoder(vocab_size, 2, d_model, n_head, n_hid, n_layers, pos_encoder=pos_encoder)
     })
     return model
 
-def build_step_gen_transformer(vocab_size, pos_max_len,d_model=8):
+def build_step_gen_transformer(vocab_size, pos_max_len,d_model,n_head, n_hid, n_layers):
     pos_encoder = PositionalEncoding(d_model, max_len=pos_max_len)
     model = nn.ModuleDict({
-        'conj_encoder': TransformerEncoder(vocab_size, d_model, n_head=2, n_hid=8, n_layers=6, pos_encoder=pos_encoder),
-        'deps_encoder': TransformerEncoder(vocab_size, d_model, n_head=2, n_hid=8, n_layers=6, pos_encoder=pos_encoder),
-        'step_decoder': TransformerDecoder(vocab_size, vocab_size, d_model, n_head=2, n_hid=8, n_layers=6, pos_encoder=pos_encoder, embed_tgt=False)
+        'conj_encoder': TransformerEncoder(vocab_size, d_model, n_head, n_hid, n_layers, pos_encoder=pos_encoder),
+        'deps_encoder': TransformerEncoder(vocab_size, d_model, n_head, n_hid, n_layers, pos_encoder=pos_encoder),
+        'step_decoder': TransformerDecoder(vocab_size, vocab_size, d_model, n_head, n_hid, n_layers, pos_encoder=pos_encoder, embed_tgt=False)
     })
     return model
 

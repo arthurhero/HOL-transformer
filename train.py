@@ -71,28 +71,36 @@ if __name__ == '__main__':
     num_epochs = 10
     lr = 10e-4
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-    dataparser = DataParser('../holstep', use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
+    dataparser = DataParser('../holstep', max_len=256, use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
 
     # ckpt names
     pt_ckpt = 'pt.ckpt'
     sct_ckpt = 'sct.ckpt'
     sgt_ckpt = 'sgt.ckpt'
 
+    # model size
+    d_model = 8
+    n_head=8
+    n_hid=16
+    n_layers=6
+
     # pretrain encoders
     pre_train_gen = dataparser.conj_gen_gen(split='train', batch_size=1, shuffle=True, load_neg_steps=True)
     pre_val_gen = dataparser.conj_gen_gen(split='val', batch_size=1, shuffle=False, load_neg_steps=True)
-    pt = build_pretrain_transformer(dataparser.vocab_size+1, dataparser.max_len)
+
+    pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
     optimizer = torch.optim.Adam(pt.parameters(),lr=lr,betas=(0.5,0.9))
+
     train(pt, run_pretrain_transformer, pretrain_loss, optimizer, num_epochs, pre_train_gen, pre_val_gen, device, pt_ckpt, 'best_'+pt_ckpt, [0.2])
     '''
 
     # train step classifider
     cls_train_gen= dataparser.steps_gen_gen(split='train', batch_size=1, shuffle=True)
     cls_val_gen= dataparser.steps_gen_gen(split='val', batch_size=1, shuffle=False)
-    sct = build_step_cls_transformer(dataparser.vocab_size+1, dataparser.max_len)
+    sct = build_step_cls_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
     '''
     '''
-    pt = build_pretrain_transformer(dataparser.vocab_size+1, dataparser.max_len)
+    pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
     #pt.load_state_dict(torch.load('best_'+pt_ckpt))
     pt.load_state_dict(torch.load(pt_ckpt))
     encoder_state = copy.deepcopy(pt['encoder'].state_dict())
