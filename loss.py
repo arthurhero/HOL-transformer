@@ -13,6 +13,7 @@ def pretrain_loss(sample, output, mask):
     mask = 1-mask
     mask *= (sample!=0).long()
     if mask.sum()==0:
+        print("mask zero")
         return 0.0
     nd_idx = mask.nonzero(as_tuple=True)
     sample = sample[nd_idx]
@@ -27,6 +28,7 @@ def cls_loss(outputs, labels):
     outputs - batch x 2
     labels - batch
     '''
+    #print(outputs)
     loss = nn.CrossEntropyLoss(reduction='sum')(outputs, labels)
     _, preds = torch.max(outputs, 1)
     corrects = torch.sum(preds == labels.data)

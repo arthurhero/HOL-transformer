@@ -307,9 +307,12 @@ class DataParser(object):
     conj_name = conjecture_names[index]
     conjecture = all_conjectures[conj_name]
     steps = conjecture['+']
-    if not steps:
+    if len(steps)==0:
       return None
     deps=conjecture['deps']
+    if len(deps)==0:
+      print("no deps")
+      return None
     conj=conjecture['conj']
     if load_neg_steps:
       return steps, conjecture['-'], conj, deps
@@ -348,9 +351,9 @@ class DataParser(object):
          step.append(s)
          conj.append(c)
          label.append(l)
-         deps.append(encode(d))
+         deps.append(encode(d)[:,:256])
          cur_idx += 1
-      yield (encode(conj), deps, encode(step), np.asarray(label))
+      yield (encode(conj)[:,:256], deps, encode(step)[:,:256], np.asarray(label))
 
   def steps_gen_gen(self, split='train', encoding='integer', batch_size=8, shuffle=True):
       while 1:
@@ -390,17 +393,17 @@ class DataParser(object):
            continue
          if load_neg_steps:
            s, ns, c, d = ret 
-           neg_step.append(encode(ns))
+           neg_step.append(encode(ns)[:,:256])
          else:
            s, c, d = ret 
-         step.append(encode(s))
+         step.append(encode(s)[:,:256])
          conj.append(c)
-         deps.append(encode(d))
+         deps.append(encode(d)[:,:256])
          cur_idx += 1
       if load_neg_steps:
-        yield (encode(conj), deps, step, neg_step)
+          yield (encode(conj)[:,:256], deps, step, neg_step)
       else:
-        yield (encode(conj), deps, step)
+          yield (encode(conj)[:,:256], deps, step)
 
   def conj_gen_gen(self, split='train', encoding='integer', batch_size=8, shuffle=True, load_neg_steps=False):
     while 1:

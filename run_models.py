@@ -41,26 +41,43 @@ def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, lo
 
 
     #sample_list = [conj]+deps+step+neg_step
-    sample_list = [conj] + deps
+    sample_list = [conj]+deps 
     loss = 0.0
     corrects = 0
     total = 0
     for sample in sample_list:
         #print(sample.shape)
-        mask = torch.ones(sample.shape[0]*sample.shape[1]).long().to(device)
-        mask[:int(math.ceil(len(mask)*percent))]=0
-        mask = mask[torch.randperm(len(mask))]
-        mask = mask.reshape(sample.shape)
-        masked_sample = sample*mask
+        while 1:
+            mask = torch.ones(sample.shape[0]*sample.shape[1]).long().to(device)
+            mask[:int(math.ceil(len(mask)*percent))]=0
+            mask = mask[torch.randperm(len(mask))]
+            mask = mask.reshape(sample.shape)
+            masked_sample = sample*mask
+            if torch.sum(masked_sample != sample)>0 and masked_sample.sum(0).min() > 0:
+                break
+            '''
+            if torch.sum(masked_sample != sample)==0:
+                print("no diff")
+                '''
+            if torch.sum(masked_sample != sample)>0 and masked_sample.sum(0).min() == 0:
+                print("made all 0 row")
+            if masked_sample.shape[1]==0:
+                print("sample batch 0!")
+            if torch.sum(masked_sample != sample)==0 and masked_sample.sum(0).min() == 0:
+                print("orig all 0 row")
         hidden = cut_batch(masked_sample, b, pt['encoder']) # len x batch x channel
         output = pt['decoder'](hidden) # len x batch x vocab_size
         res = loss_fn(sample, output, mask)
+        '''
         if res == 0.0:
             continue
+            '''
         lo, co, to = res
         loss += lo
         corrects += co
         total += to
+    if loss == 0.0:
+        print(loss)
     return loss, corrects, total
 
 def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, loss_fn):
@@ -75,29 +92,29 @@ def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, lo
     # turn into tensors
     conj = torch.LongTensor(conj).to(device).transpose(0,1) # clen x batch
     step = torch.LongTensor(step).to(device).transpose(0,1) # slen x batch
-    if use_deps:
-        deps = [torch.LongTensor(dep).to(device).transpose(0,1) for dep in deps] # [dlen x num_dep]
-
     b=conj.shape[1]
+    if use_deps:
+        #deps = [torch.LongTensor(dep).to(device).transpose(0,1) for dep in deps] # [dlen x num_dep]
+        deps = [torch.LongTensor(dep)[torch.randperm(len(dep))[:min(len(dep),b)]].to(device).transpose(0,1) for dep in deps] # [dlen x batch]
 
     encoded_conj = sct['conj_encoder'](conj) # clen x batch x channel
 
     if use_deps:
         encoded_deps = [cut_batch(dep, b, sct['deps_encoder']) for dep in deps] # [dlen x num_dep x channel]
 
-    memory_len = 48
+    memory_len = 256 
 
     encoded_conj = encoded_conj[:memory_len]
     if use_deps:
         encoded_deps = [dep[:memory_len] for dep in encoded_deps]
-        memory = [torch.cat([encoded_conj[:,i:i+1],encoded_deps[i]],dim=1) for i in range(b)] # [8 x (num_dep+1) x c], len=batch
-        memory = [m.reshape(m.shape[0]*m.shape[1],-1).unsqueeze(1) for m in memory]
+        memory = [torch.cat([encoded_conj[:,i:i+1],encoded_deps[i].reshape(-1,1,encoded_deps[i].shape[-1])],dim=0) for i in range(b)] # [8 x (num_dep+1) x c], len=batch
+        #memory = [m.reshape(m.shape[0]*m.shape[1],-1).unsqueeze(1) for m in memory]
     else:
-        memory = [encoded_conj[:,i:i+1] for i in range(b)] # [8 x i x c]
+        memory = [encoded_conj[:,i:i+1] for i in range(b)] # [8 x 1 x c]
 
     outputs = []
     for i in range(b):
-        outputs.append(sct['step_decoder'](step[:,i:i+1] ,memory[i], mask_tgt=True)) # 1 x cls_num
+        outputs.append(sct['step_decoder'](step[:,i:i+1] ,memory[i], mask_tgt=True)[0]) # 1 x cls_num
     outputs = torch.cat(outputs,dim=0) # batch x cls_num
     labels = torch.LongTensor(labels).to(device)
     loss, corrects, total = loss_fn(outputs, labels)
