@@ -57,8 +57,7 @@ def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, lo
     if res == 0.0:
         return None
     loss, corrects, total = res
-    else:
-        return loss, corrects, total
+    return loss, corrects, total
 
 def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, loss_fn):
     '''
