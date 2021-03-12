@@ -419,6 +419,8 @@ class DataParser(object):
 
 if __name__ == '__main__':
     dataparser = DataParser('../holstep', max_len=256, use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
+    print(dataparser.train_step_nums[-1])
+    '''
     mask_train_gen= dataparser.conj_generator(split='train', batch_size=1, shuffle=True, load_neg_steps = True)
     cls_train_gen= dataparser.steps_generator(split='train', batch_size=1, shuffle=True)
     gen_train_gen= dataparser.conj_generator(split='train', batch_size=1, shuffle=True, load_neg_steps = False)
@@ -426,3 +428,4 @@ if __name__ == '__main__':
     c,d,s,l = next(cls_train_gen)
     print("conj",dataparser.integer_decode_statements(c)[0])
     print("step",dataparser.integer_decode_statements(s)[0])
+    '''

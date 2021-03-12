@@ -22,7 +22,7 @@ def cut_batch(tensor, batch_size, model):
     outs = torch.cat(outs, dim=1) # len x long x *
     return outs 
 
-def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, loss_fn):
+def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, loss_fn, return_outputs=False):
     '''
     pretrain using random mask char
     conj - batch x clen
@@ -51,11 +51,14 @@ def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, lo
             break
     hidden = pt['encoder'](masked_sample) # len x batch x channel
     output = pt['decoder'](hidden) # len x batch x vocab_size
+    if return_outputs:
+        return sample, mask, output
     res = loss_fn(sample, output, mask)
     if res == 0.0:
         return None
     loss, corrects, total = res
-    return loss, corrects, total
+    else:
+        return loss, corrects, total
 
 def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, loss_fn):
     '''
@@ -90,7 +93,7 @@ def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, lo
     loss, corrects, total = loss_fn(outputs, labels)
     return loss, corrects, total
 
-def run_step_gen_transformer(conj, deps, step, sgt, d_model, device, loss_fn):
+def run_step_gen_transformer(conj, deps, step, sgt, d_model, device, loss_fn, return_outputs=False):
     '''
     conj - batch x clen
     deps - [num_dep x dlen], len=batch
@@ -113,9 +116,12 @@ def run_step_gen_transformer(conj, deps, step, sgt, d_model, device, loss_fn):
 
     tgt = torch.randn(conj.shape[0], b, d_model).to(device)
     outputs = step_decoder(tgt ,memory, mask_tgt=False) # tlen x batch x cls_num
-    step = [torch.LongTensor(s).to(device).transpose(0,1) for s in step] # [tlen' x num_dep]
-    loss, corrects, total = loss_fn(outputs, step)
-    return loss, corrects, total 
+    if return_outputs:
+        return conj, deps, outputs
+    else:
+        step = [torch.LongTensor(s).to(device).transpose(0,1) for s in step] # [tlen' x num_dep]
+        loss, corrects, total = loss_fn(outputs, step)
+        return loss, corrects, total 
 
 if __name__ == '__main__':
     from data_utils import DataParser
