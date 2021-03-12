@@ -32,9 +32,9 @@ if __name__ == '__main__':
     gen_val_gen= dataparser.conj_generator(split='val', batch_size=1, shuffle=False, load_neg_steps=False)
 
     # models
-    pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len,d_model, n_head, n_hid, n_layers) #
+    pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len,d_model, n_head, n_hid, n_layers).to(device) #
     pt.load_state_dict(torch.load('pt_64_l9_h4.ckpt'))
-    sgt = build_step_gen_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
+    sgt = build_step_gen_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers).to(device)
     sgt.load_state_dict(torch.load('best_sgt.ckpt'))
 
     # pretrain
