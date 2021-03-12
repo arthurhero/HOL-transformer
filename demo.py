@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
     # models
     pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len,d_model, n_head, n_hid, n_layers).to(device) #
-    pt.load_state_dict(torch.load('pt_64_l9_h4.ckpt'))
+    pt.load_state_dict(torch.load('best_pt.ckpt'))
     sgt = build_step_gen_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers).to(device)
     sgt.load_state_dict(torch.load('best_sgt.ckpt'))
 
