@@ -38,6 +38,7 @@ if __name__ == '__main__':
     sgt.load_state_dict(torch.load('best_sgt.ckpt'))
 
     # pretrain
+    '''
     for i, data in enumerate(pre_val_gen):
         sample, mask, outputs = run_pretrain_transformer(*data, pt, 0.2, device, None, True)
         masked_sample = sample * mask
@@ -53,15 +54,21 @@ if __name__ == '__main__':
         print(dataparser.integer_decode_statements(outputs)[0])
         print()
         break
+        '''
 
     '''
+        '''
     for i, data in enumerate(gen_val_gen):
         conj, deps, outputs = run_step_gen_transformer(*data, sgt, d_model, device, None, True)
         _, outputs = torch.max(outputs, 2)
         conj = conj.transpose(0,1).cpu().detach().numpy()
         deps = deps.transpose(0,1).cpu().detach().numpy()
         outputs = outputs.transpose(0,1).cpu().detach().numpy()
-        print(dataparser.integer_decode_statements(conj))
-        '''
+        print(dataparser.integer_decode_statements(conj)[0])
+        print()
+        print(dataparser.integer_decode_statements(deps)[0])
+        print()
+        print(dataparser.integer_decode_statements(outputs)[0])
+        print()
 
 
