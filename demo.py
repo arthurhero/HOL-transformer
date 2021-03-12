@@ -49,7 +49,7 @@ if __name__ == '__main__':
         print()
         print(dataparser.integer_decode_statements(masked_sample)[0])
         print()
-        print(dataparser.integer_decode_statements(outpus)[0])
+        print(dataparser.integer_decode_statements(outputs)[0])
         print()
         break
 
