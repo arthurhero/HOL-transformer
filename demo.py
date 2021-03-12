@@ -42,6 +42,7 @@ if __name__ == '__main__':
         sample, mask, outputs = run_pretrain_transformer(*data, pt, 0.2, device, None, True)
         masked_sample = sample * mask
         _, outputs = torch.max(outputs, 2)
+        outputs = (1-mask)*outputs+masked_sample
         sample = sample.transpose(0,1).cpu().detach().numpy()
         masked_sample = masked_sample.transpose(0,1).cpu().detach().numpy()
         outputs = outputs.transpose(0,1).cpu().detach().numpy()
@@ -49,7 +50,7 @@ if __name__ == '__main__':
         print()
         print(dataparser.integer_decode_statements(masked_sample)[0])
         print()
-        print(dataparser.integer_decode_statements((1-mask)*outputs+masked_sample)[0])
+        print(dataparser.integer_decode_statements(outputs)[0])
         print()
         break
 
