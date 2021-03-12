@@ -40,6 +40,8 @@ def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, lo
 
     sample = torch.cat([conj,deps,step,neg_step],dim=1) # 256 x 4b
 
+    encoder = nn.DataParallel(pt['encoder'],[0,1,3],dim=1)
+    decoder = nn.DataParallel(pt['decoder'],[0,1,3],dim=1)
 
     while 1:
         mask = torch.ones(sample.shape[0]*sample.shape[1]).long().to(device)
@@ -49,8 +51,8 @@ def run_pretrain_transformer(conj, deps, step, neg_step, pt, percent, device, lo
         masked_sample = sample*mask
         if torch.sum(masked_sample != sample)>0 and masked_sample.sum(0).min() > 0:
             break
-    hidden = pt['encoder'](masked_sample) # len x batch x channel
-    output = pt['decoder'](hidden) # len x batch x vocab_size
+    hidden = encoder(masked_sample) # len x batch x channel
+    output = decoder(hidden) # len x batch x vocab_size
     if return_outputs:
         return sample, mask, output
     res = loss_fn(sample, output, mask)
