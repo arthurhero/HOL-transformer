@@ -18,7 +18,7 @@ def pretrain_loss(sample, output, mask):
     sample = sample[nd_idx]
     output = output[nd_idx]
     loss = nn.CrossEntropyLoss(reduction='sum')(output, sample)
-    _, preds = torch.max(output, 1)
+    _, preds = torch.max(output, 2)
     corrects = torch.sum(preds == sample.data)
     return loss, corrects, len(sample)
 
@@ -56,7 +56,7 @@ def gen_loss(outputs, step):
             l = nn.CrossEntropyLoss(reduction='sum')(o, s)
             if min_loss is None or l<min_loss:
                 min_loss = l
-                _, preds = torch.max(o, 1)
+                _, preds = torch.max(o, 2)
                 corrects_len = torch.sum(preds == s.data)
                 total_len = len(s)
         loss += min_loss

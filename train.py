@@ -87,6 +87,7 @@ if __name__ == '__main__':
 
     # pretrain encoders
     '''
+    '''
     pre_train_gen = dataparser.conj_gen_gen(split='train', batch_size=batch_size, shuffle=True, load_neg_steps=True)
     pre_val_gen = dataparser.conj_gen_gen(split='val', batch_size=batch_size, shuffle=False, load_neg_steps=True)
 
@@ -94,7 +95,6 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(pt.parameters(),lr=lr,betas=(0.5,0.9))
 
     train(pt, run_pretrain_transformer, pretrain_loss, optimizer, num_epochs, pre_train_gen, pre_val_gen, device, pt_ckpt, 'best_'+pt_ckpt, [0.2])
-    '''
 
     # train step classifider
     '''
@@ -115,8 +115,8 @@ if __name__ == '__main__':
     train(sct, run_step_cls_transformer, cls_loss, optimizer, num_epochs, cls_train_gen, cls_val_gen, device, sct_ckpt, 'best_'+sct_ckpt, [True])
     '''
 
+    '''
     # train step gen
-
     gen_train_gen = dataparser.conj_gen_gen(split='train', batch_size=batch_size, shuffle=True, load_neg_steps=False)
     gen_val_gen = dataparser.conj_gen_gen(split='val', batch_size=batch_size, shuffle=False, load_neg_steps=False)
     sgt = build_step_gen_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
@@ -131,3 +131,4 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(sgt.parameters(),lr=lr,betas=(0.5,0.9))
     train(sgt, run_step_gen_transformer, gen_loss, optimizer, num_epochs, gen_train_gen, gen_val_gen, device, sgt_ckpt, 'best_'+sgt_ckpt, [d_model])
+    '''
