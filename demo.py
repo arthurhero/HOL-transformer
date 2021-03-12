@@ -45,8 +45,15 @@ if __name__ == '__main__':
         sample = sample.transpose(0,1).cpu().detach().numpy()
         masked_sample = masked_sample.transpose(0,1).cpu().detach().numpy()
         outputs = outputs.transpose(0,1).cpu().detach().numpy()
-        print(dataparser.integer_decode_statements(sample))
+        print(dataparser.integer_decode_statements(sample)[0])
+        print()
+        print(dataparser.integer_decode_statements(masked_sample)[0])
+        print()
+        print(dataparser.integer_decode_statements(outpus)[0])
+        print()
+        break
 
+    '''
     for i, data in enumerate(gen_val_gen):
         conj, deps, outputs = run_step_gen_transformer(*data, sgt, d_model, device, None, True)
         _, outputs = torch.max(outputs, 2)
@@ -54,5 +61,6 @@ if __name__ == '__main__':
         deps = deps.transpose(0,1).cpu().detach().numpy()
         outputs = outputs.transpose(0,1).cpu().detach().numpy()
         print(dataparser.integer_decode_statements(conj))
+        '''
 
 
