@@ -50,7 +50,7 @@ def train(model, run_fn, loss_fn, optimizer, num_epochs, train_gen_gen, val_gen_
                 running_corrects += co.item()
                 running_totals += to
 
-                if step % 100 == 99:
+                if step % 10 == 9:
                     step_loss = running_loss / running_totals 
                     step_acc = running_corrects / running_totals
                     print('Step {}: {:.4f} Acc: {:.4f}'.format(step, step_loss, step_acc))
@@ -68,8 +68,8 @@ def train(model, run_fn, loss_fn, optimizer, num_epochs, train_gen_gen, val_gen_
     return
 
 if __name__ == '__main__':
-    num_epochs = 10
-    batch_size = 8
+    num_epochs = 100
+    batch_size = 128
     lr = 10e-4
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     dataparser = DataParser('../holstep', max_len=256, use_tokens=False, verbose=True, saved_vocab='vocab.pkl', saved_train_conj='train_conj.pkl', saved_val_conj='val_conj.pkl', saved_test_conj='test_conj.pkl', saved_max_len=57846)
@@ -80,12 +80,13 @@ if __name__ == '__main__':
     sgt_ckpt = 'sgt.ckpt'
 
     # model size
-    d_model = 8
-    n_head=8
-    n_hid=16
-    n_layers=6
+    d_model = 64
+    n_head=4
+    n_hid =128
+    n_layers=9
 
     # pretrain encoders
+    '''
     pre_train_gen = dataparser.conj_gen_gen(split='train', batch_size=batch_size, shuffle=True, load_neg_steps=True)
     pre_val_gen = dataparser.conj_gen_gen(split='val', batch_size=batch_size, shuffle=False, load_neg_steps=True)
 
@@ -96,6 +97,7 @@ if __name__ == '__main__':
     '''
 
     # train step classifider
+    '''
     cls_train_gen= dataparser.steps_gen_gen(split='train', batch_size=batch_size, shuffle=True)
     cls_val_gen= dataparser.steps_gen_gen(split='val', batch_size=batch_size, shuffle=False)
     sct = build_step_cls_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
@@ -103,7 +105,7 @@ if __name__ == '__main__':
     '''
     pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
     #pt.load_state_dict(torch.load('best_'+pt_ckpt))
-    pt.load_state_dict(torch.load(pt_ckpt))
+    pt.load_state_dict(torch.load('pt_64_l9_h4.ckpt'))
     encoder_state = copy.deepcopy(pt['encoder'].state_dict())
     sct['conj_encoder'].load_state_dict(encoder_state)
     sct['deps_encoder'].load_state_dict(encoder_state)
@@ -113,3 +115,19 @@ if __name__ == '__main__':
     train(sct, run_step_cls_transformer, cls_loss, optimizer, num_epochs, cls_train_gen, cls_val_gen, device, sct_ckpt, 'best_'+sct_ckpt, [True])
     '''
 
+    # train step gen
+
+    gen_train_gen = dataparser.conj_gen_gen(split='train', batch_size=batch_size, shuffle=True, load_neg_steps=False)
+    gen_val_gen = dataparser.conj_gen_gen(split='val', batch_size=batch_size, shuffle=False, load_neg_steps=False)
+    sgt = build_step_gen_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
+
+
+    pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len, d_model, n_head, n_hid, n_layers)
+    #pt.load_state_dict(torch.load('best_'+pt_ckpt))
+    pt.load_state_dict(torch.load('pt_64_l9_h4.ckpt'))
+    encoder_state = copy.deepcopy(pt['encoder'].state_dict())
+    sgt['conj_encoder'].load_state_dict(encoder_state)
+    sgt['deps_encoder'].load_state_dict(encoder_state)
+
+    optimizer = torch.optim.Adam(sgt.parameters(),lr=lr,betas=(0.5,0.9))
+    train(sgt, run_step_gen_transformer, gen_loss, optimizer, num_epochs, gen_train_gen, gen_val_gen, device, sgt_ckpt, 'best_'+sgt_ckpt, [d_model])

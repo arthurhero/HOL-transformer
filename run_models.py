@@ -73,15 +73,19 @@ def run_step_cls_transformer(conj, deps, step, labels, sct, use_deps, device, lo
     if use_deps:
         deps = torch.cat([torch.LongTensor(d[random.randint(0, d.shape[0]-1)]).unsqueeze(1) for d in deps], dim=1).to(device) # 256 x b, randomly choose 1 for each sample
 
-    encoded_conj = sct['conj_encoder'](conj) # clen x batch x channel
+    conj_encoder = nn.DataParallel(sct['conj_encoder'],[0,1,3],dim=1)
+    deps_encoder = nn.DataParallel(sct['deps_encoder'],[0,1,3],dim=1)
+    step_decoder = nn.DataParallel(sct['step_decoder'],[0,1,3],dim=1)
+
+    encoded_conj = conj_encoder(conj) # clen x batch x channel
 
     if use_deps:
-        encoded_deps = sct['deps_encoder'](deps) # dlen x batch x channel
+        encoded_deps = deps_encoder(deps) # dlen x batch x channel
         memory = torch.cat([encoded_conj,encoded_deps], dim=0) # (256*2) x batch x channel
     else:
         memory = encoded_conj
 
-    outputs = sct['step_decoder'](step ,memory, mask_tgt=True)[0] # batch x cls_num
+    outputs = step_decoder(step ,memory, mask_tgt=True)[0] # batch x cls_num
     labels = torch.LongTensor(labels).to(device)
     loss, corrects, total = loss_fn(outputs, labels)
     return loss, corrects, total
@@ -96,15 +100,19 @@ def run_step_gen_transformer(conj, deps, step, sgt, d_model, device, loss_fn):
     conj = torch.LongTensor(conj).to(device).transpose(0,1) # clen x batch
     deps = torch.cat([torch.LongTensor(d[random.randint(0, d.shape[0]-1)]).unsqueeze(1) for d in deps], dim=1).to(device) # 256 x b, randomly choose 1 for each sample
 
+    conj_encoder = nn.DataParallel(sgt['conj_encoder'],[0,1,3],dim=1)
+    deps_encoder = nn.DataParallel(sgt['deps_encoder'],[0,1,3],dim=1)
+    step_decoder = nn.DataParallel(sgt['step_decoder'],[0,1,3],dim=1)
+
     b=conj.shape[1]
 
-    encoded_conj = sgt['conj_encoder'](conj) # clen x batch x channel
-    encoded_deps = sgt['deps_encoder'](deps) # dlen x batch x channel
+    encoded_conj = conj_encoder(conj) # clen x batch x channel
+    encoded_deps = deps_encoder(deps) # dlen x batch x channel
 
     memory = torch.cat([encoded_conj,encoded_deps],dim=0) # (256*2) x batch x channel
 
     tgt = torch.randn(conj.shape[0], b, d_model).to(device)
-    outputs = sgt['step_decoder'](tgt ,memory, mask_tgt=False) # tlen x batch x cls_num
+    outputs = step_decoder(tgt ,memory, mask_tgt=False) # tlen x batch x cls_num
     step = [torch.LongTensor(s).to(device).transpose(0,1) for s in step] # [tlen' x num_dep]
     loss, corrects, total = loss_fn(outputs, step)
     return loss, corrects, total 
