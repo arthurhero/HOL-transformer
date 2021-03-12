@@ -28,8 +28,8 @@ if __name__ == '__main__':
     n_layers=9
 
     # data generator
-    pre_val_gen = dataparser.conj_generator(split='val', batch_size=1, shuffle=False, load_neg_steps=True)
-    gen_val_gen= dataparser.conj_generator(split='val', batch_size=1, shuffle=False, load_neg_steps=False)
+    pre_val_gen = dataparser.conj_generator(split='val', batch_size=1, shuffle=True, load_neg_steps=True)
+    gen_val_gen= dataparser.conj_generator(split='val', batch_size=1, shuffle=True, load_neg_steps=False)
 
     # models
     pt = build_pretrain_transformer(dataparser.vocab_size+3, dataparser.max_len,d_model, n_head, n_hid, n_layers).to(device) #
